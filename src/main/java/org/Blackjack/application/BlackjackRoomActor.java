@@ -7,20 +7,22 @@ import org.Blackjack.infrastructure.AbstractActor;
 import org.Blackjack.infrastructure.Command;
 import org.Blackjack.infrastructure.Response;
 
+import java.util.HashMap;
 import java.util.LinkedList;
+import java.util.Map;
 import java.util.Queue;
 
 public final class BlackjackRoomActor extends AbstractActor<RoomId> {
     private final Dealer dealer;
     private final BlackjackTable table;
-    private final Queue<Player> players;
+    private final Map<PlayerID, Player> players;
     private PlayerID roomOwnerId;
     private GameRoomState gameRoomState;
 
     public BlackjackRoomActor() {
         this.dealer  = new Dealer();
         this.table   = new BlackjackTable();
-        this.players = new LinkedList<>();
+        this.players = new HashMap<>();
         this.gameRoomState = GameRoomState.ROOM_CREATED;
     }
 
@@ -40,7 +42,7 @@ public final class BlackjackRoomActor extends AbstractActor<RoomId> {
 
         roomOwnerId = command.player().id();
 
-        players.offer(command.player());
+        players.putIfAbsent(command.player().id(), command.player());
 
         gameRoomState = GameRoomState.WAITING_PLAYERS;
 
