@@ -9,12 +9,13 @@ class ActorSystemTest {
 
     @Test
     void forkActorRefWithDefaultValues() {
-        ActorRef actorRef =  actorSystem.fork(new AbstractActor<Long>() {
+        ActorRef actorRef =  actorSystem.fork(new AbstractActor() {
             @Override
             public Response onReceive(Command command) {
                 return null;
             }
         });
         assertNotNull(actorRef);
+        actorSystem.stop(actorRef);
     }
 }

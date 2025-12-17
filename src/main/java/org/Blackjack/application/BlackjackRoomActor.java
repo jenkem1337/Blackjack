@@ -8,11 +8,9 @@ import org.Blackjack.infrastructure.Command;
 import org.Blackjack.infrastructure.Response;
 
 import java.util.HashMap;
-import java.util.LinkedList;
 import java.util.Map;
-import java.util.Queue;
 
-public final class BlackjackRoomActor extends AbstractActor<RoomId> {
+public final class BlackjackRoomActor extends AbstractActor {
     private final Dealer dealer;
     private final BlackjackTable table;
     private final Map<PlayerID, Player> players;
