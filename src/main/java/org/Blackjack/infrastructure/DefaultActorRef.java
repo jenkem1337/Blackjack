@@ -30,19 +30,7 @@ public class DefaultActorRef implements ActorRef {
         mailbox.offer(msg);
         return msg.future();
     }
-
-    private void processMessages() {
-        while(isRunning && Thread.currentThread().isInterrupted()) {
-            Command msg = mailbox.poll();
-            if(msg == null) {
-                waitStrategy.onWait();
-                continue;
-            }
-            Response response = actor.onReceive(msg);
-            msg.complete(response);
-        }
-    }
-
+    
     @Override
     public void start() {
         isRunning = true;
