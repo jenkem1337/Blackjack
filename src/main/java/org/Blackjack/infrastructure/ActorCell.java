@@ -1,29 +1,38 @@
 package org.Blackjack.infrastructure;
 
+import java.util.Map;
 import java.util.Queue;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 public final class ActorCell {
-    private final AbstractActor<?> actor;
+    private final AbstractActor actor;
     private final Queue<Command> mailbox;
     private final WaitStrategy waitStrategy;
     private final MessageProcessorFunction processorFactory;
 
+    private final ActorCell parent;
+    private final Map<String, ActorCell> children = new ConcurrentHashMap<>();
+    private final ActorContext context;
     private final AtomicBoolean running = new AtomicBoolean(false);
     private Thread mailboxThread;
 
     ActorCell(
-            AbstractActor<?> actor,
+            ActorSystem system,
+            AbstractActor actor,
             Queue<Command> mailbox,
             WaitStrategy waitStrategy,
-            MessageProcessorFunction processorFactory
+            MessageProcessorFunction processorFactory,
+            ActorCell parent
     ) {
         this.actor = actor;
         this.mailbox = mailbox;
         this.waitStrategy = waitStrategy;
         this.processorFactory = processorFactory;
-
+        this.parent = parent;
+        this.context = new ActorContext(system, this);
         actor.setSelfQueue(mailbox);
+        actor.attachContext(context);
     }
 
     void start() {
@@ -55,5 +64,25 @@ public final class ActorCell {
     boolean isRunning() {
         return running.get();
     }
+    void addChild(ActorCell child) {
+        children.putIfAbsent(child.actor.id().toString(), child);
+    }
+
+    void removeChild(ActorCell child) {
+        children.remove(child.actor.id().toString());
+    }
+
+    Map<String, ActorCell> children() {
+        return children;
+    }
+
+    ActorCell parent() {
+        return parent;
+    }
+    public ActorContext context() {
+        return context;
+    }
+
+
 
 }
