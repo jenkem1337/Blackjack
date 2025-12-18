@@ -1,5 +1,8 @@
 package org.Blackjack.infrastructure;
 
+import org.Blackjack.application.ApplicationException;
+import org.Blackjack.domain.DomainException;
+
 import java.util.Queue;
 
 public class DefaultMailboxMessageProcessor implements MessageProcessorFunction{
@@ -14,10 +17,14 @@ public class DefaultMailboxMessageProcessor implements MessageProcessorFunction{
                 }
                 try {
                     Response response = room.onReceive(msg);
+                    if(response instanceof NullResponse) {
+                        continue;
+                    }
                     msg.complete(response);
-                } catch (RuntimeException e) {
-                    System.out.println(e.getMessage());
-                    msg.complete(new ErrorResponse(e.getMessage()));
+                } catch (DomainException | ApplicationException domainOrApplicationException) {
+                    msg.complete(new ApplicationErrorResponse(domainOrApplicationException.getMessage()));
+                } catch (Throwable throwable) {
+                    msg.complete(new SystemErrorResponse(throwable.getMessage()));
                 }
             }
         };
