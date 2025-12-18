@@ -1,5 +1,5 @@
 package org.Blackjack.infrastructure;
 
-public interface Response {
+public sealed interface Response permits NullResponse, ApplicationErrorResponse, SuccessResponse, SystemErrorResponse{
 
 }
