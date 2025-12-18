@@ -15,7 +15,7 @@ class ShoeTest {
     }
     @Test
     void shouldThrowIllegalStateExceptionCallingPutShuffledDeck_WhenDeckIsNotShuffled(){
-        assertThrows(IllegalStateException.class, () -> {
+        assertThrows(DomainException.class, () -> {
             var shoe = Shoe.empty();
             shoe.putShuffledDeck(Deck.withUnShuffledCards());
         });
