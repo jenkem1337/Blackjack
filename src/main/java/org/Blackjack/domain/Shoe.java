@@ -22,7 +22,7 @@ public class Shoe {
             this.deck = deck;
             return;
         }
-        throw new IllegalStateException("Deck must be shuffled for putting to shoe!!");
+        throw new DomainException("Deck must be shuffled for putting to shoe!!");
     }
     public Deck deck() {return deck;}
     public Card drawCard() {

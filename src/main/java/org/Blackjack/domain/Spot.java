@@ -28,12 +28,12 @@ public class Spot {
         playerHands.add(card);
         if(isCardRankEqualToAce(card) && isHandValueBiggerThan21WhenCardIsAce(card)) {
             if(incrementHandValueByOneAndCheckBiggerThan21(card)) {
-                throw new IllegalStateException("Hand bigger than 21 !");
+                throw new DomainException("Hand bigger than 21 !");
             }
             return true;
         }
         if(incrementHandValueByRankValueAndCheckBiggerThan21(card)) {
-            throw new IllegalStateException("Hand bigger than 21 !");
+            throw new DomainException("Hand bigger than 21 !");
         }
         return true;
     }

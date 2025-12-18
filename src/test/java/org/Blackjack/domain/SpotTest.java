@@ -32,7 +32,7 @@ class SpotTest {
 
     @Test
     void shouldThrowIllegalStateException_WhenHandValueBiggerThan21() {
-        assertThrows(IllegalStateException.class, () -> {
+        assertThrows(DomainException.class, () -> {
             var spot = Spot.forPlayer(new PlayerID());
             spot.placeCard(Card.newInstanceWithFaceSide(Suit.DIAMOND, Rank.KING));
             spot.placeCard(Card.newInstanceWithFaceSide(Suit.SPADES, Rank.KING));

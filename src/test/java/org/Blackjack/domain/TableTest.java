@@ -56,7 +56,7 @@ class TableTest {
     }
     @Test
     void shouldThrowIllegalStateException_WhenDeckIsNotShuffled() {
-        assertThrows(IllegalStateException.class, () -> {
+        assertThrows(DomainException.class, () -> {
             var table = new Table();
             table.putShuffledDeckToShoe(table.getDeckFromShoe());
         });
