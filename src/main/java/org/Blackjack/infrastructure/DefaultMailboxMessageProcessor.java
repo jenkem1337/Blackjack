@@ -7,7 +7,7 @@ import java.util.Queue;
 
 public class DefaultMailboxMessageProcessor implements MessageProcessorFunction{
     @Override
-    public Runnable apply(boolean isRunning, Actor<Command, Response> room, WaitStrategy waitStrategy, Queue<Command> mailbox) {
+    public Runnable apply(boolean isRunning, Actor<Command, Response> actor, WaitStrategy waitStrategy, Queue<Command> mailbox) {
         return () -> {
             while(isRunning) {
                 Command msg = mailbox.poll();
@@ -16,7 +16,7 @@ public class DefaultMailboxMessageProcessor implements MessageProcessorFunction{
                     continue;
                 }
                 try {
-                    Response response = room.onReceive(msg);
+                    Response response = actor.onReceive(msg);
                     if(response instanceof NullResponse) {
                         continue;
                     }
