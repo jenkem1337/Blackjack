@@ -6,4 +6,4 @@ import org.Blackjack.infrastructure.Response;
 
 import java.util.concurrent.CompletableFuture;
 
-public record CreateRoom(Player player, CompletableFuture<Response> future) {}
+public record CreateRoom(Player player) {}
