@@ -15,7 +15,6 @@ import static org.junit.jupiter.api.Assertions.*;
 class BlackjackTableManagerActorTest {
 
     static ActorSystem system;
-    ActorRef managerRef;
     @BeforeAll
     static void setUp() {
         system = new ActorSystem();
@@ -23,10 +22,10 @@ class BlackjackTableManagerActorTest {
 
     @Test
     void sendMessage() {
-        managerRef = system.fork(new BlackjackTableManagerActor());
+        var managerRef = system.fork(new BlackjackTableManagerActor());
         Player player = new Player();
         PlayerID playerID = player.id();
-        CompletableFuture<Response> futureResponse = managerRef.send(new AsyncCommand(new CreateRoom(player)));
+        CompletableFuture<Response> futureResponse = managerRef.send(new AsyncCommand<>(new CreateRoom(player)));
         RoomCreatedAndRegistered roomCreatedAndRegistered = ((SuccessResponse<RoomCreatedAndRegistered>)futureResponse.join()).message();
         assertInstanceOf(RoomCreatedAndRegistered.class, roomCreatedAndRegistered);
         assertEquals(playerID, roomCreatedAndRegistered.playerID());
