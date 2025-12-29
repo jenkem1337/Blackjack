@@ -1,6 +1,10 @@
 package org.Blackjack.infrastructure;
 
+import org.Blackjack.application.BlackjackTableManagerActor;
 import org.Blackjack.application.RoomId;
+import org.Blackjack.application.command.CreateRoom;
+import org.Blackjack.application.response.RoomCreatedAndRegistered;
+import org.Blackjack.domain.Player;
 import org.Blackjack.domain.PlayerID;
 
 import java.io.IOException;
@@ -9,8 +13,10 @@ import java.nio.ByteBuffer;
 import java.nio.channels.*;
 import java.util.ArrayList;
 import java.util.Iterator;
+import java.util.Queue;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.ConcurrentMap;
 
 public class NonBlockingTCPServer {
@@ -18,6 +24,9 @@ public class NonBlockingTCPServer {
     private Selector selector;
     private ServerSocketChannel serverChannel;
     private Set<SocketChannel> connections = ConcurrentHashMap.newKeySet();
+    private final ActorSystem system = new ActorSystem();
+    private final ActorRef managerRef = system.fork(new BlackjackTableManagerActor());
+    private final Queue<Runnable> pendingTasks = new ConcurrentLinkedQueue<>();
     public NonBlockingTCPServer(int port) {
         this.port = port;
     }
@@ -29,6 +38,7 @@ public class NonBlockingTCPServer {
 
             while (true) {
                 selector.select(); // blocking until events
+                runPendingTasks();
                 Set<SelectionKey> selectedKeys = selector.selectedKeys();
                 Iterator<SelectionKey> iter = selectedKeys.iterator();
 
@@ -77,7 +87,8 @@ public class NonBlockingTCPServer {
         SocketChannel client = server.accept();
         connections.add(client);
         client.configureBlocking(false);
-        client.register(selector, SelectionKey.OP_READ);
+        var selectionKey = client.register(selector, SelectionKey.OP_READ);
+        selectionKey.attach(new ClientContext(client));
         System.out.println("New client connected: " + client.getRemoteAddress());
     }
 
@@ -88,54 +99,114 @@ public class NonBlockingTCPServer {
         int bytesRead = client.read(buffer);
 
         if (bytesRead == -1) {
-            System.out.println("Client disconnected: " + client.getRemoteAddress());
-            client.close();
+            pendingTasks.offer(() -> closeClient(key));
+            selector.wakeup();
             return;
         } else if (bytesRead > 0) {
             buffer.flip();
             byte[] data = new byte[buffer.limit()];
             buffer.get(data);
             String message = new String(data).trim();
-            if(message.equals("exit")) {
-                client.close();
-                return;
+            if(message.equals("EXIT")) {
+                pendingTasks.offer(() -> closeClient(key));
+                selector.wakeup();
             }
-            else if(message.startsWith("/broadcast ")) {
-                broadcast((client.getRemoteAddress() + " : " + message.substring(11) + "\n").getBytes());
+            else if(message.startsWith("CREATE")){
+                PlayerID playerID = new PlayerID();
+                System.out.println("Player Id : " +playerID.id().toString());
+                managerRef.send(new AsyncCommand<>(new CreateRoom(new Player(playerID))))
+                        .whenComplete(((response, throwable) -> {
+                            pendingTasks.offer(() -> {
+                                ClientContext ctx = (ClientContext) key.attachment();
+                                if (throwable != null) {
+                                    ctx.writeQueue.add(ByteBuffer.wrap("ERROR\n".getBytes()));
+                                } else {
+                                    if(response instanceof SuccessResponse<?> successResponse) {
+                                        RoomCreatedAndRegistered payload = (RoomCreatedAndRegistered)successResponse.message();
+                                        String str = "ROOM CREATED : " + " Room Id " + payload.uuid() + " : Player Id " + payload.playerID().id().toString()+"\n";
+                                        ctx.writeQueue.add(ByteBuffer.wrap(str.getBytes()));
+
+                                    }
+                                }
+
+                                key.interestOps(key.interestOps() | SelectionKey.OP_WRITE);
+                            });
+
+                            selector.wakeup();
+
+                        }));
             }
+//            else if(message.startsWith("/broadcast ")) {
+//                broadcast((client.getRemoteAddress() + " : " + message.substring(11) + "\n").getBytes());
+//            }
             System.out.println("Received: " + message);
-//            key.attach(ByteBuffer.wrap(String.format("Hello Client %s", client.getRemoteAddress()).getBytes()));
             key.interestOps(SelectionKey.OP_WRITE | SelectionKey.OP_READ);
-            //            writeToClient(client, "Hello Client\n");
         }
     }
 
     private void handleWrite(SelectionKey key) throws IOException {
-        SocketChannel client = (SocketChannel) key.channel();
-        ByteBuffer buffer = (ByteBuffer) key.attachment();
+//        SocketChannel client = (SocketChannel) key.channel();
+//        ByteBuffer buffer = (ByteBuffer) key.attachment();
+//
+//        if (buffer == null) {
+//            // yazacak bir şey yok → write flag’ini kapat
+//            key.interestOps(key.interestOps() & ~SelectionKey.OP_WRITE);
+//            return;
+//        }
+//
+//        int written = client.write(buffer);
+//
+//        if (written == -1) {
+//            connections.remove(client);
+//            client.close();
+//            return;
+//        }
+//
+//        if (buffer.hasRemaining()) {
+//            // partial write → sonra tekrar denenmek üzere OP_WRITE açık kalır
+//            return;
+//        }
+//
+//        // Yazma tamamlandı
+//        key.attach(null); // buffer'ı temizle
+//        key.interestOps(SelectionKey.OP_READ); // tekrar read moduna dön
 
-        if (buffer == null) {
-            // yazacak bir şey yok → write flag’ini kapat
-            key.interestOps(key.interestOps() & ~SelectionKey.OP_WRITE);
-            return;
+        ClientContext ctx = (ClientContext) key.attachment();
+        SocketChannel client = ctx.channel;
+
+        while (true) {
+            ByteBuffer buffer = ctx.writeQueue.peek();
+
+            if (buffer == null) {
+                // yazacak hiçbir şey kalmadı
+                key.interestOps(key.interestOps() & ~SelectionKey.OP_WRITE);
+                return;
+            }
+
+            int written = client.write(buffer);
+
+            if (written == -1) {
+                connections.remove(client);
+                client.close();
+                return;
+            }
+
+            if (buffer.hasRemaining()) {
+                // socket buffer dolu → selector tekrar çağıracak
+                return;
+            }
+
+            // buffer tamamen yazıldı
+            ctx.writeQueue.poll();
         }
 
-        int written = client.write(buffer);
-
-        if (written == -1) {
-            connections.remove(client);
-            client.close();
-            return;
-        }
-
-        if (buffer.hasRemaining()) {
-            // partial write → sonra tekrar denenmek üzere OP_WRITE açık kalır
-            return;
-        }
-
-        // Yazma tamamlandı
-        key.attach(null); // buffer'ı temizle
-        key.interestOps(SelectionKey.OP_READ); // tekrar read moduna dön
+    }
+    private void closeClient(SelectionKey key) {
+        try {
+            connections.remove((SocketChannel) key.channel());
+            key.cancel();
+            key.channel().close();
+        } catch (IOException ignored) {}
     }
 
     private void closeServer() {
@@ -146,5 +217,12 @@ public class NonBlockingTCPServer {
             e.printStackTrace();
         }
     }
+    private void runPendingTasks() {
+        Runnable task;
+        while ((task = pendingTasks.poll()) != null) {
+            task.run();
+        }
+    }
+
 
 }
