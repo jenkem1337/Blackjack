@@ -6,14 +6,17 @@ import java.util.UUID;
 
 public class Player {
     private final PlayerID id;
-    private String nickName;
+    private String username;
     private boolean isInGame;
 
-    public Player(PlayerID id) {
+    public Player(PlayerID id, String username, boolean isInGame) {
         this.id = id;
+        this.username = username;
+        this.isInGame = isInGame;
     }
     public Player() {
-        this(new PlayerID());
+        this(new PlayerID(), null, false);
     }
     public PlayerID id() {return id;}
+    public String username(){return username;}
 }
