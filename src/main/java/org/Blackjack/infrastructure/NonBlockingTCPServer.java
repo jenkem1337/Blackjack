@@ -1,8 +1,11 @@
 package org.Blackjack.infrastructure;
 
 import org.Blackjack.application.BlackjackTableManagerActor;
+import org.Blackjack.application.PlayerManagerActor;
 import org.Blackjack.application.RoomId;
 import org.Blackjack.application.command.CreateRoom;
+import org.Blackjack.application.command.IsUserExist;
+import org.Blackjack.application.command.SavePlayer;
 import org.Blackjack.application.response.RoomCreatedAndRegistered;
 import org.Blackjack.domain.Player;
 import org.Blackjack.domain.PlayerID;
@@ -15,6 +18,7 @@ import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.Queue;
 import java.util.Set;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.ConcurrentMap;
@@ -26,6 +30,7 @@ public class NonBlockingTCPServer {
     private Set<SocketChannel> connections = ConcurrentHashMap.newKeySet();
     private final ActorSystem system = new ActorSystem();
     private final ActorRef managerRef = system.fork(new BlackjackTableManagerActor());
+    private final ActorRef playerManagerRef = system.fork(new PlayerManagerActor());
     private final Queue<Runnable> pendingTasks = new ConcurrentLinkedQueue<>();
     public NonBlockingTCPServer(int port) {
         this.port = port;
@@ -37,7 +42,7 @@ public class NonBlockingTCPServer {
             System.out.println("Server started on port " + port);
 
             while (true) {
-                selector.select(); // blocking until events
+                selector.select();
                 runPendingTasks();
                 Set<SelectionKey> selectedKeys = selector.selectedKeys();
                 Iterator<SelectionKey> iter = selectedKeys.iterator();
@@ -101,7 +106,6 @@ public class NonBlockingTCPServer {
         if (bytesRead == -1) {
             pendingTasks.offer(() -> closeClient(key));
             selector.wakeup();
-            return;
         } else if (bytesRead > 0) {
             buffer.flip();
             byte[] data = new byte[buffer.limit()];
@@ -111,66 +115,99 @@ public class NonBlockingTCPServer {
                 pendingTasks.offer(() -> closeClient(key));
                 selector.wakeup();
             }
-            else if(message.startsWith("CREATE")){
-                PlayerID playerID = new PlayerID();
-                System.out.println("Player Id : " +playerID.id().toString());
-                managerRef.send(new AsyncCommand<>(new CreateRoom(new Player(playerID))))
+
+            else if (message.startsWith("REGISTER_PLAYER")) {
+                // <REGISTER_PLAYER:USERNAME>
+                playerManagerRef.send(new AsyncCommand<>(new SavePlayer(message.split(":")[1])))
                         .whenComplete(((response, throwable) -> {
                             pendingTasks.offer(() -> {
                                 ClientContext ctx = (ClientContext) key.attachment();
-                                if (throwable != null) {
-                                    ctx.writeQueue.add(ByteBuffer.wrap("ERROR\n".getBytes()));
-                                } else {
-                                    if(response instanceof SuccessResponse<?> successResponse) {
-                                        RoomCreatedAndRegistered payload = (RoomCreatedAndRegistered)successResponse.message();
-                                        String str = "ROOM CREATED : " + " Room Id " + payload.uuid() + " : Player Id " + payload.playerID().id().toString()+"\n";
-                                        ctx.writeQueue.add(ByteBuffer.wrap(str.getBytes()));
 
-                                    }
+                                if (throwable != null) {
+                                    ctx.writeQueue.add(ByteBuffer.wrap(("ERROR:"+throwable.getMessage()+"\n").getBytes()));
+                                }
+                                else if(response instanceof SuccessResponse<?> successResponse) {
+                                        Player player = (Player)successResponse.message();
+                                        String str = "USER_CREATED:" + " PLAYER_ID=" + player.id().id() + ":USERNAME=" +player.username()+"\n";
+                                        ctx.writeQueue.add(ByteBuffer.wrap(str.getBytes()));
+                                }
+                                else if(response instanceof ApplicationErrorResponse errorResponse) {
+                                    ctx.writeQueue.add(ByteBuffer.wrap(("ERROR_RESPONSE:"+errorResponse.message()+"\n").getBytes()));
+                                }
+
+                                key.interestOps(key.interestOps() | SelectionKey.OP_WRITE);
+
+                            });
+                            selector.wakeup();
+                        }));
+            }
+
+            else if(message.startsWith("CREATE_ROOM")){
+                // CREATE_ROOM:USERNAME
+                playerManagerRef.send(new AsyncCommand<>(new IsUserExist(message.split(":")[1])))
+                        .thenCompose(response -> {
+                            if (response instanceof SuccessResponse<?> success) {
+                                Player player = (Player) success.message();
+                                return managerRef.send(
+                                        new AsyncCommand<>(new CreateRoom(player))
+                                );
+                            }
+                            else  {
+                                if (response instanceof  ApplicationErrorResponse applicationErrorResponse) {
+                                    pendingTasks.offer(() -> {
+                                        ClientContext ctx = (ClientContext) key.attachment();
+                                        ctx.writeQueue.add(
+                                                ByteBuffer.wrap("USER NOT FOUND\n".getBytes())
+                                        );
+                                        key.interestOps(key.interestOps() | SelectionKey.OP_WRITE);
+                                    });
+                                    selector.wakeup();
+
+                                    return CompletableFuture.completedFuture(null);
+                                }
+                            }
+                            return null;
+                        }).thenAccept(response -> {
+                            if (response == null) {
+                                return;
+                            }
+
+                            pendingTasks.offer(() -> {
+                                ClientContext ctx = (ClientContext) key.attachment();
+
+                                if (response instanceof SuccessResponse<?> success) {
+                                    RoomCreatedAndRegistered payload =
+                                            (RoomCreatedAndRegistered) success.message();
+
+                                    String msg =
+                                            "ROOM CREATED : Room Id " + payload.uuid() +
+                                                    " : Player Id " + payload.playerID().id() + "\n";
+
+                                    ctx.writeQueue.add(ByteBuffer.wrap(msg.getBytes()));
+                                } else {
+                                    ctx.writeQueue.add(
+                                            ByteBuffer.wrap("ERROR\n".getBytes())
+                                    );
                                 }
 
                                 key.interestOps(key.interestOps() | SelectionKey.OP_WRITE);
                             });
 
                             selector.wakeup();
+                        });
 
-                        }));
             }
-//            else if(message.startsWith("/broadcast ")) {
-//                broadcast((client.getRemoteAddress() + " : " + message.substring(11) + "\n").getBytes());
-//            }
-            System.out.println("Received: " + message);
+
+            else {
+                ClientContext ctx = (ClientContext) key.attachment();
+                ctx.writeQueue.add(ByteBuffer.wrap("Unkonwn route message\n".getBytes()));
+                key.interestOps(SelectionKey.OP_WRITE | SelectionKey.OP_READ);
+            }
             key.interestOps(SelectionKey.OP_WRITE | SelectionKey.OP_READ);
         }
     }
 
     private void handleWrite(SelectionKey key) throws IOException {
-//        SocketChannel client = (SocketChannel) key.channel();
-//        ByteBuffer buffer = (ByteBuffer) key.attachment();
-//
-//        if (buffer == null) {
-//            // yazacak bir şey yok → write flag’ini kapat
-//            key.interestOps(key.interestOps() & ~SelectionKey.OP_WRITE);
-//            return;
-//        }
-//
-//        int written = client.write(buffer);
-//
-//        if (written == -1) {
-//            connections.remove(client);
-//            client.close();
-//            return;
-//        }
-//
-//        if (buffer.hasRemaining()) {
-//            // partial write → sonra tekrar denenmek üzere OP_WRITE açık kalır
-//            return;
-//        }
-//
-//        // Yazma tamamlandı
-//        key.attach(null); // buffer'ı temizle
-//        key.interestOps(SelectionKey.OP_READ); // tekrar read moduna dön
-
         ClientContext ctx = (ClientContext) key.attachment();
         SocketChannel client = ctx.channel;
 
@@ -192,11 +229,8 @@ public class NonBlockingTCPServer {
             }
 
             if (buffer.hasRemaining()) {
-                // socket buffer dolu → selector tekrar çağıracak
                 return;
             }
-
-            // buffer tamamen yazıldı
             ctx.writeQueue.poll();
         }
 
