@@ -20,21 +20,11 @@ public class ClientContext {
         this.selectorExecutor = selectorExecutor;
         this.key = key;
     }
-
-    public void writeLater(ByteBuffer buffer) {
+    public SelectionKey selectionKey() {return key;}
+    public void write(ByteBuffer buffer) {
         selectorExecutor.offerTask(() -> {
             writeQueue.add(buffer);
             key.interestOps(key.interestOps() | SelectionKey.OP_WRITE);
         });
     }
-
-    public void closeLater() {
-        selectorExecutor.offerTask(() -> {
-            try {
-                key.cancel();
-                channel.close();
-            } catch (IOException ignored) {}
-        });
-    }
-
 }
