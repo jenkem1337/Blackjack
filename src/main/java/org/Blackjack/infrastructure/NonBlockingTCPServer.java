@@ -78,7 +78,7 @@ public class NonBlockingTCPServer {
         TransportReadResponse result = transport.read(clientContext);
 
         switch (result) {
-            case TransportReadResponse.Data(ByteBuffer data) -> {
+            case TransportReadResponse.Data(String data) -> {
                 protocolHandler.onData(clientContext, data);
                 key.interestOps(SelectionKey.OP_WRITE | SelectionKey.OP_READ);
                 selector.wakeup();
