@@ -12,5 +12,7 @@ public class ActorContext {
     public ActorRef fork(AbstractActor childActor) {
         return system.fork(childActor, self);
     }
-
+    public void sendMessageToParent(Object msg) {
+        self.parent().enqueue(new AsyncCommand<>(msg));
+    }
 }

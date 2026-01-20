@@ -25,8 +25,13 @@ public class PlainTextTransport implements  Transport{
             data.put(buffer);
             data.flip();
             buffer.clear();
+            String message = new String(data.array(), 0, data.remaining()).trim();
 
-            return new TransportReadResponse.Data(data);
+            if(message.startsWith("EXIT")) {
+                return new TransportReadResponse.Closed();
+            }
+
+            return new TransportReadResponse.Data(message);
 
         } catch (IOException ioException) {
             return null;

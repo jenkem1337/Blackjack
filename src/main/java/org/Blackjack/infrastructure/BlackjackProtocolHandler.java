@@ -1,7 +1,5 @@
 package org.Blackjack.infrastructure;
 
-import org.Blackjack.application.BlackjackTableManagerActor;
-import org.Blackjack.application.PlayerManagerActor;
 import org.Blackjack.application.command.CreateRoom;
 import org.Blackjack.application.command.IsUserExist;
 import org.Blackjack.application.command.SavePlayer;
@@ -13,18 +11,16 @@ import java.nio.channels.SelectionKey;
 import java.util.concurrent.CompletableFuture;
 
 public class BlackjackProtocolHandler implements ProtocolHandler{
-    private final ActorSystem system = new ActorSystem();
-    private final ActorRef managerRef = system.fork(new BlackjackTableManagerActor());
-    private final ActorRef playerManagerRef = system.fork(new PlayerManagerActor());
+    private final ActorRef managerRef;
+    private final ActorRef playerManagerRef;
+
+    public BlackjackProtocolHandler(ActorRef managerRef, ActorRef playerManagerRef) {
+        this.managerRef = managerRef;
+        this.playerManagerRef = playerManagerRef;
+    }
 
     @Override
-    public void onData(ClientContext ctx, ByteBuffer data) {
-        String message = new String(data.array(), 0, data.remaining()).trim();
-
-        if (message.equals("EXIT")) {
-            ctx.closeLater();
-            return;
-        }
+    public void onData(ClientContext ctx, String message) {
 
         if (message.startsWith("REGISTER_PLAYER")) {
             registerPlayer(ctx, message.split(":")[1]);
@@ -36,7 +32,7 @@ public class BlackjackProtocolHandler implements ProtocolHandler{
             return;
         }
 
-        ctx.writeLater(ByteBuffer.wrap("UNKNOWN ROUTE\n".getBytes()));
+        ctx.write(ByteBuffer.wrap("UNKNOWN ROUTE\n".getBytes()));
     }
     private void registerPlayer(ClientContext ctx, String username) {
         playerManagerRef
@@ -44,7 +40,7 @@ public class BlackjackProtocolHandler implements ProtocolHandler{
                 .whenComplete((response, throwable) -> {
 
                     if (throwable != null) {
-                        ctx.writeLater(
+                        ctx.write(
                                 ByteBuffer.wrap(("ERROR:" + throwable.getMessage() + "\n").getBytes())
                         );
                         return;
@@ -55,12 +51,12 @@ public class BlackjackProtocolHandler implements ProtocolHandler{
                         String msg =
                                 "USER_CREATED:PLAYER_ID=" + player.id().id() +
                                         ":USERNAME=" + player.username() + "\n";
-                        ctx.writeLater(ByteBuffer.wrap(msg.getBytes()));
+                        ctx.write(ByteBuffer.wrap(msg.getBytes()));
                         return;
                     }
 
                     if (response instanceof ApplicationErrorResponse err) {
-                        ctx.writeLater(
+                        ctx.write(
                                 ByteBuffer.wrap(("ERROR_RESPONSE:" + err.message() + "\n").getBytes())
                         );
                     }
@@ -75,7 +71,7 @@ public class BlackjackProtocolHandler implements ProtocolHandler{
                         Player p = (Player) success.message();
                         return managerRef.send(new AsyncCommand<>(new CreateRoom(p)));
                     }
-                    ctx.writeLater(ByteBuffer.wrap("USER NOT FOUND\n".getBytes()));
+                    ctx.write(ByteBuffer.wrap("USER NOT FOUND\n".getBytes()));
                     return CompletableFuture.completedFuture(null);
                 })
                 .thenAccept(resp -> {
@@ -89,9 +85,9 @@ public class BlackjackProtocolHandler implements ProtocolHandler{
                                 "ROOM CREATED:ROOM_ID=" + r.uuid() +
                                         ":PLAYER_ID=" + r.playerID().id() + "\n";
 
-                        ctx.writeLater(ByteBuffer.wrap(msg.getBytes()));
+                        ctx.write(ByteBuffer.wrap(msg.getBytes()));
                     } else {
-                        ctx.writeLater(ByteBuffer.wrap("ERROR\n".getBytes()));
+                        ctx.write(ByteBuffer.wrap("ERROR\n".getBytes()));
                     }
                 });
     }
